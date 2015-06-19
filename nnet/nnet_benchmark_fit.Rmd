@@ -1,0 +1,109 @@
+---
+title: "nnet benchmark fit"
+author: "George Fisher"
+date: "June 16, 2015"
+output: 
+  pdf_document: 
+    toc: yes
+    toc_depth: 1
+---
+
+#SETUP
+
+```{r setup, message=FALSE}
+library(nnet)
+
+library(plyr)
+library(caret)
+library(psych)
+library(pryr)
+library(ggplot2)
+library(foreach)
+library(doParallel)
+library(readr)
+library(data.table)
+
+rm(list = setdiff(ls(), lsf.str())) # clear variables, leave functions
+ptm <- proc.time()                  # start timer
+opar = par(no.readonly=TRUE)
+
+# ############################ PARAMETER SETUP ##################################
+# ===============================================================================
+
+deskewed = FALSE                        # deskewed (TRUE) or original (FALSE)
+source("load_TrainTest.R")              # load the data
+
+best_M        = 120
+best_maxit    = 250
+best_decay    = 0.5
+
+# ===============================================================================
+# ############################ PARAMETER SETUP ##################################
+# ################################## END ########################################
+
+# calculate the length of the Wts vector
+# ======================================
+num.Wts = function(p, M, K) {
+    # returns the length of the Wts vector
+    #
+    # p = ncol(X) # number of predictor variables
+    # M = size    # number of hidden units
+    # K = 1       # number of classes
+    return ((p + 1) * M + K * (M + 1))
+}
+p = ncol(trainX) # number of predictor variables
+K = 10           # x, y input the number of output classes
+```
+
+#TRAIN WITH THE FULL TRAINING DATASET   
+
+```{r fit_best, message=FALSE}
+nnet.fit = nnet(x=trainX, y=class.ind(trainY),
+                softmax=TRUE,
+                size=best_M, decay=best_decay, maxit=best_maxit,
+                bag=TRUE, MaxNWts=num.Wts(p, best_M, K), 
+                Wts=runif (num.Wts(p, best_M, K), -0.5, 0.5),
+                trace=TRUE)
+```
+
+#FIT THE TEST DATASET
+
+```{r pred_test,message=FALSE}
+nnet.pred = predict(nnet.fit, newdata=testX, type="class")
+
+(matrix = table(actual    = as.character(testY),
+                predicted = nnet.pred))
+
+# tr() expects a square matrix
+# if predict() does not produce all values 0...9 an error is thrown
+correct.entries = 0
+tr_error = tryCatch({
+    correct.entries = tr(matrix)
+    }, warning = function(w) {
+        #warning-handler-code
+        }, error = function(e) {
+            print(e)
+            }, finally = {
+                #cleanup code
+                })
+(model.accuracy  = correct.entries / sum(matrix))
+(model.misclass  = 1 - model.accuracy)
+
+# which were the hardest to detect?
+# =================================
+if (correct.entries > 0) {
+    results = data.frame(number=numeric(0), percent=numeric(0))
+    for (i in seq(from=0,to=9)){
+         results[nrow(results)+1,] = c(i, round(prop.table(matrix,1),digits=3)[i+1,i+1])
+    }
+    
+    results[nrow(results)+1,] = c(100,model.accuracy)
+    print(arrange(results,percent))
+}
+
+# run time
+run_time = proc.time() - ptm
+print(paste("elapsed minutes",round(run_time[3]/60,digits=2),
+             "; elapsed hours",round(run_time[3]/(60*60),digits=2)))
+```
+
