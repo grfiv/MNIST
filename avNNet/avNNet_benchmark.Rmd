@@ -1,0 +1,133 @@
+---
+title: "avNNet Benchmark Fit"
+author: "George Fisher"
+date: "June 19, 2015"
+output:
+  pdf_document:
+    toc: yes
+    toc_depth: 1
+  html_document:
+    toc: yes
+---
+
+#SETUP
+
+```{r setup, message=FALSE}
+library(nnet)
+
+library(psych)
+library(plyr)
+library(caret)
+library(pryr)
+library(ggplot2)
+library(foreach)
+library(doParallel)
+library(readr)
+library(data.table)
+library(NMF)
+library(RColorBrewer)
+
+rm(list = setdiff(ls(), lsf.str())) # clear variables, leave functions
+ptm <- proc.time()                  # start timer
+opar = par(no.readonly=TRUE)
+
+# ############################ PARAMETER SETUP ##################################
+# ===============================================================================
+
+deskewed = TRUE                        # deskewed (TRUE) or original (FALSE)
+source("../load_TrainTest.R")          # load the data
+
+best_M        = 100
+best_maxit    = 250
+best_decay    = 1
+repeats       = 3
+allowParallel = TRUE; registerDoParallel() 
+
+# ===============================================================================
+# ############################ PARAMETER SETUP ##################################
+# ################################## END ########################################
+
+# calculate the length of the Wts vector
+# ======================================
+num.Wts = function(p, M, K) {
+    # returns the length of the Wts vector
+    #
+    # p = ncol(X) # number of predictor variables
+    # M = size    # number of hidden units
+    # K = 1       # number of classes
+    return ((p + 1) * M + K * (M + 1))
+}
+p = ncol(trainX) # number of predictor variables
+K = 10           # x, y input the number of output classes
+```
+
+#TRAIN WITH THE FULL TRAINING DATASET   
+
+
+```{r fit_best, message=FALSE}
+avNNet.fit = avNNet(x=trainX, y=class.ind(trainY),
+                    softmax=TRUE, bag=TRUE,
+                    size=best_M, decay=best_decay, maxit=best_maxit,
+                    repeats = repeats, allowParallel = allowParallel,
+                    MaxNWts=num.Wts(p, best_M, K), 
+                    Wts=runif (num.Wts(p, best_M, K), -0.5, 0.5),
+                    trace=FALSE)
+```
+
+#FIT THE TEST DATASET
+
+```{r pred_test,message=FALSE}
+avNNet.pred = predict(avNNet.fit, newdata=testX, type="class")
+
+matrix = table(actual    = as.character(testY),
+               predicted = avNNet.pred)
+
+# heatmap of the range of probabilities
+aheatmap(prop.table(matrix,margin=1), Rowv=NA, Colv=NA)
+
+confusionMatrix(data=avNNet.pred, reference=as.character(testY))
+
+# tr() expects a square matrix
+# if predict() does not produce all values 0...9 an error is thrown
+correct.entries = tryCatch({
+                    # code to try
+                    # 'tryCatch()' will return the last evaluated expression 
+                    # in case the "try" part was completed successfully
+                    tr(matrix)
+                    }, 
+                    warning = function(w) {
+                        # warning-handler-code
+                        print(w)
+                        return(0.0)
+                        }, 
+                    error = function(e) {
+                        # error-handler-code
+                        print(e)
+                        return(0.0)
+                        }, 
+                    finally = {
+                        # NOTE:
+                        # Here goes everything that should be executed at the end,
+                        # regardless of success or error. 
+                        } )
+(model.accuracy  = correct.entries / sum(matrix))
+(model.misclass  = 1 - model.accuracy)
+
+# which were the hardest to detect?
+# =================================
+if (correct.entries > 0) {
+    results = data.frame(number=numeric(0), percent=numeric(0))
+    for (i in seq(from=0,to=9)){
+         results[nrow(results)+1,] = c(i, round(prop.table(matrix,1),digits=3)[i+1,i+1])
+    }
+    
+    results[nrow(results)+1,] = c(100,model.accuracy)
+    print(arrange(results,percent))
+}
+
+# run time
+run_time = proc.time() - ptm
+print(paste("elapsed minutes",round(run_time[3]/60,digits=2),
+             "; elapsed hours",round(run_time[3]/(60*60),digits=2)))
+```
+
