@@ -46,14 +46,6 @@ if (deskewed) {
     cv_filename = "nnet_cv_original.txt"
 }
 
-# start a new file 
-# ------> comment out to append to an existing file <------
-# ========================================================================
-header="fold,M,maxit,decay,avg.misclass,avg.mem_used,parms,date,elapsed"
-write.table(header, file=cv_filename, quote=FALSE, sep="", append=FALSE,
-            row.names = FALSE, col.names = FALSE)
-# ========================================================================
-
 params = expand.grid(M = 40, maxit = c(250,300,400), decay = 1)
 
 #params = expand.grid(M = 5, maxit = 50, decay = 0.5)   # for script testing only
@@ -61,6 +53,15 @@ params = expand.grid(M = 40, maxit = c(250,300,400), decay = 1)
 # ===============================================================================
 # ############################ PARAMETER SETUP ##################################
 # ################################## END ########################################
+
+# start a new file for CV info if none exists
+# ===========================================
+if ( !file.exists(cv_filename) ) {
+    header="fold,M,maxit,decay,avg.misclass,avg.mem_used,parms,date,elapsed"
+    
+    write.table(header, file=cv_filename, quote=FALSE, sep="", append=FALSE,
+                row.names = FALSE, col.names = FALSE)
+}
 
 # calculate the length of the Wts vector
 # ======================================
