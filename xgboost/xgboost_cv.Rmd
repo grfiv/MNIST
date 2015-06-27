@@ -1,0 +1,160 @@
+---
+title: "xgboost cross validation"
+author: "George Fisher"
+date: "June 27, 2015"
+output: 
+  pdf_document: 
+    toc: yes
+    toc_depth: 1
+---
+
+#SETUP
+
+```{r setup, message=FALSE}
+set.seed(1009)
+library(xgboost)
+library(Matrix)
+
+library(psych)
+library(plyr)
+library(caret)
+library(pryr)
+library(ggplot2)
+library(foreach)
+library(doParallel)
+library(readr)
+library(data.table)
+library(NMF)
+library(RColorBrewer)
+
+rm(list = setdiff(ls(), lsf.str())) # clear variables, leave functions
+ptm <- proc.time()                  # start timer
+opar = par(no.readonly=TRUE)
+
+# ############################ PARAMETER SETUP ##################################
+# ===============================================================================
+
+deskewed = TRUE                        # deskewed (TRUE) or original (FALSE)
+source("../load_TrainTest.R")          # load the data
+
+trainXsparse = sparse.model.matrix(~.-1, data=trainX)
+testXsparse  = sparse.model.matrix(~.-1, data=testX)
+
+nthread = 8                             # how many cores to put to work?
+
+if (deskewed) {
+    cv_filename = "xgboost_cv_deskewed.txt"
+} else {
+    cv_filename = "xgboost_cv_original.txt"
+}
+
+param.matrix = expand.grid(eta=c(0.1),
+                           max_depth=c(4),
+                           min_child_weight=c(0,1/sqrt(10)),
+                           colsample_bytree = c(1,0.5),
+                           subsample = c(0.5,1),
+                           gamma = c(0),
+                           nrounds = c(10000)
+                           )
+
+# ===============================================================================
+# ############################ PARAMETER SETUP ##################################
+# ################################## END ########################################
+
+# start a new file for CV info if none exists
+# ===========================================
+if ( !file.exists(cv_filename) ) {
+    header="it,eta,depth,c_wt,col,sub,gamma,mis,tree,mis1,tree1,parms,date,elapsed"
+    
+    write.table(header, file=cv_filename, quote=FALSE, sep="", append=FALSE,
+                row.names = FALSE, col.names = FALSE)
+}
+```
+
+#CROSS VALIDATION
+
+```{r cv, message=FALSE}
+# for each row in the parameter matrix ...
+# ========================================
+for (i in 1:nrow(param.matrix)) {
+    iter_start = proc.time()
+    
+    eta              = param.matrix[i,"eta"]
+    max_depth        = param.matrix[i,"max_depth"]
+    min_child_weight = param.matrix[i,"min_child_weight"]
+    colsample_bytree = param.matrix[i,"colsample_bytree"]
+    subsample        = param.matrix[i,"subsample"]
+    gamma            = param.matrix[i,"gamma"]
+    nrounds          = param.matrix[i,"nrounds"]
+
+    params=list(booster = "gbtree", verbose = 0,
+                objective="multi:softmax", num_class=10, eval_metric="merror",
+            
+                eta              = eta,
+                max_depth        = max_depth,
+                min_child_weight = min_child_weight,
+                colsample_bytree = colsample_bytree,
+                subsample        = subsample,
+                gamma            = gamma
+                )
+    
+    # cross validation
+    # ================
+    xgboost.cv = xgb.cv(params  = params,
+                        nthread = nthread,
+                        data    = xgb.DMatrix(data=trainXsparse,
+                                              label=trainY),
+                        #nrounds = 10,
+                        nrounds = nrounds,
+    
+                        nfold = 5, stratified = TRUE,
+                        prediction = FALSE, showsd = TRUE,
+                        early.stop.round = 50,
+                        #metrics=list("merror"),
+    
+                        verbose = FALSE
+                        )
+    
+    # find the best and +1 StDev error and number of trees
+    # ====================================================
+    best_test.merror.mean      = min(xgboost.cv$test.merror.mean)
+    best_test.merror.mean.idx  = which.min(xgboost.cv$test.merror.mean)
+    best_test.merror.stdev     = xgboost.cv$test.merror.std[best_test.merror.mean.idx]
+    
+    plus1_test.merror.mean     = best_test.merror.mean + best_test.merror.stdev
+    plus1_test.merror.mean.idx =  max(which(xgboost.cv$test.merror.mean >= 
+                                                plus1_test.merror.mean))
+
+    # write each iteration's result to disk
+    # =====================================
+    frt      = proc.time() - iter_start    # iteration run time
+    frte     = as.numeric(frt["elapsed"])  # iteration run time elapsed
+    #"it,eta,depth,c_wt,col,sub,gamma,mis,tree,mis1,tree1,parms,date,elapsed"
+    fold_row = c(i, 
+                 eta, max_depth, min_child_weight, colsample_bytree, subsample,
+                 gamma, 
+                 best_test.merror.mean,  best_test.merror.mean.idx,
+                 plus1_test.merror.mean, plus1_test.merror.mean.idx,
+                 paste0("E",eta, "MD",max_depth, "WT",round(min_child_weight,2),
+                        "COL",colsample_bytree, "SUB",subsample,
+                        "G",gamma, "RNDS",best_test.merror.mean.idx), 
+                 date(), frte)
+    write.table(matrix(fold_row, ncol=14, nrow=1),
+                file=cv_filename, 
+                append=TRUE, quote=TRUE, sep=",",
+                row.names = FALSE, col.names = FALSE)
+}
+```
+
+# RUN TIME
+
+```{r cv_runtime}
+# run time
+run_time = proc.time() - ptm
+print(paste(
+    "elapsed minutes",round(run_time[3] / 60,digits = 2),
+    "; elapsed hours",round(run_time[3] / (60 * 60),digits = 2),
+    "; user/elapsed",round((run_time[1]+run_time[4])/run_time[3],digits=0)
+))
+```
+

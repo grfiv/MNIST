@@ -1,0 +1,110 @@
+---
+title: "xgboost cross benchmark"
+author: "George Fisher"
+date: "June 27, 2015"
+output: 
+  pdf_document: 
+    toc: yes
+    toc_depth: 1
+---
+
+#SETUP
+
+```{r setup, message=FALSE}
+set.seed(1009)
+library(xgboost)
+library(Matrix)
+
+library(psych)
+library(plyr)
+library(caret)
+library(pryr)
+library(ggplot2)
+library(foreach)
+library(doParallel)
+library(readr)
+library(data.table)
+library(NMF)
+library(RColorBrewer)
+
+rm(list = setdiff(ls(), lsf.str())) # clear variables, leave functions
+ptm <- proc.time()                  # start timer
+opar = par(no.readonly=TRUE)
+
+# ############################ PARAMETER SETUP ##################################
+# ===============================================================================
+
+deskewed = TRUE                        # deskewed (TRUE) or original (FALSE)
+source("../load_TrainTest.R")          # load the data
+
+trainXsparse = sparse.model.matrix(~.-1, data=trainX)
+testXsparse  = sparse.model.matrix(~.-1, data=testX)
+
+nthread = 8                             # how many cores to put to work?
+
+eta              = 0.1
+max_depth        = 4
+min_child_weight = 0.316
+colsample_bytree = 0.5
+subsample        = 1
+gamma            = 0
+nrounds          = 894
+
+# ===============================================================================
+# ############################ PARAMETER SETUP ##################################
+# ################################## END ########################################
+
+```
+
+#TRAIN THE MODEL
+
+```{r train, message=FALSE}
+params = list(booster = "gbtree", verbose = 0,
+              objective = "multi:softmax", num_class = 10, eval_metric = "merror",
+              eta              = eta,
+              max_depth        = max_depth,
+              min_child_weight = min_child_weight,
+              colsample_bytree = colsample_bytree,
+              subsample        = subsample,
+              gamma            = gamma
+              )
+
+xgboost.fit = xgb.train(params  = params,
+                        data    = xgb.DMatrix(data = trainXsparse,
+                                              label = trainY),
+                        nrounds = nrounds,
+                        watchlist = list(),
+                        verbose = 0
+                        )
+```   
+
+#PREDICT THE TEST SET   
+
+
+```{r predict}
+xgboost.pred = predict(xgboost.fit, 
+                       newdata=xgb.DMatrix(data = testXsparse))
+
+(matrix = table(actual    = testY,
+               predicted = xgboost.pred))
+
+(model.accuracy = sum(diag(matrix))/sum(matrix))
+(model.misclass = 1 - model.accuracy)
+
+# heatmap of the range of probabilities
+aheatmap(prop.table(matrix,margin=1), Rowv=NA, Colv=NA)
+
+```
+
+# RUN TIME
+
+```{r runtime}
+# run time
+run_time = proc.time() - ptm
+print(paste(
+    "elapsed minutes",round(run_time[3] / 60,digits = 2),
+    "; elapsed hours",round(run_time[3] / (60 * 60),digits = 2),
+    "; user/elapsed",round((run_time[1]+run_time[4])/run_time[3],digits=0)
+))
+```
+
