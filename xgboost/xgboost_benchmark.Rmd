@@ -10,6 +10,8 @@ output:
 
 #SETUP
 
+Run date and time `r Sys.time()`
+
 ```{r setup, message=FALSE}
 set.seed(1009)
 library(xgboost)
@@ -108,3 +110,8 @@ print(paste(
 ))
 ```
 
+# System Info
+
+```{r sessionInfo}
+sessionInfo()
+```
