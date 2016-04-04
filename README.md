@@ -6,5 +6,9 @@ As of August 2015 I have gotten through all of the algorithms and achieved 0.992
 
 See [MNIST.pdf](https://github.com/grfiv/MNIST/blob/master/MNIST.pdf) for the detailed documentation.
 
+The data is very large so I zipped up the /data/ folder and uploaded it to AWS S3; download the file and extract it inside the /MNIST/ folder produced by git pull.
+
+https://s3.amazonaws.com/grfiv-mnist/data.zip
+
 
 [![DOI](https://zenodo.org/badge/doi/10.5281/zenodo.18768.svg)](http://dx.doi.org/10.5281/zenodo.18768)
